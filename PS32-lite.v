@@ -81,7 +81,8 @@ assign SPARE_OE =  8'b11111111;
 //EMU68
 assign SPARE_OUT[0] = PI_SER_DAT;
 assign SPARE_OUT[1] = PI_SER_CLK;
-assign PI_KBRESET = KBRESET;
+// Combine active-low resets from keyboard and 68k bus without reflecting the reset we assert ourselves.
+assign PI_KBRESET = KBRESET & (mask_reset_for_pi ? 1'b1 : mc_reset_n_sync);
 
 // ## Main clock.
 wire clk;
@@ -112,7 +113,6 @@ assign INT6_n_OUT = 1'b0;
 assign INT6_n_OE = drive_int6;
 
 reg is_bm;
-reg reset_sync;
 reg halt_sync;
 reg [2:0] ipl;
 
@@ -214,10 +214,9 @@ always @(posedge clk) begin
         is_bm <= 1'b1;
 end
 
-// Sample RESET, HALT.
+// Sample HALT.
 always @(posedge clk) begin
     if (falling) begin
-        reset_sync <= !MC_RESET_n_IN;
         halt_sync <= !MC_HALT_n_IN;
     end
 end
@@ -281,7 +280,7 @@ assign PI_D_OUT = pi_data_out;
 wire drive_pi_data_out = !PI_RD && PI_WR;
 assign PI_D_OE = {16{drive_pi_data_out}};
 
-wire [15:0] pi_status = {8'd0, req_active[current_pi_slot], req_terminated_normally[current_pi_slot], ipl, halt_sync, reset_sync, is_bm};
+wire [15:0] pi_status = {8'd0, req_active[current_pi_slot], req_terminated_normally[current_pi_slot], ipl, halt_sync, ~mc_reset_n_sync, is_bm};
 
 reg [31:0] q_req_data_read;
 always @(posedge clk) begin
@@ -315,6 +314,7 @@ reg [3:0] state = 4'd0;
 (* async_reg = "true" *) reg [1:0] mc_dsack_n_sync;
 reg mc_berr_n_sync;
 reg mc_reset_n_sync;
+reg mask_reset_for_pi = 1'b1;
 reg [1:0] sync_mc_dsack_n_sync;
 
 always @(posedge clk) begin
@@ -324,6 +324,11 @@ always @(posedge clk) begin
         mc_dsack_n_sync <= MC_DSACK_n;
         mc_berr_n_sync <= MC_BERR_n;
         mc_reset_n_sync <= MC_RESET_n_IN;
+
+        if (drive_reset)
+            mask_reset_for_pi <= 1'b1;
+        else if (mc_reset_n_sync)
+            mask_reset_for_pi <= 1'b0;
     end
     
 end
